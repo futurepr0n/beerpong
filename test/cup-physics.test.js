@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const CANNON = require('cannon');
-const { createCupBody, innerRadiusAt, isBallInCup } = require('../public/cup-physics');
+const CANNON = require('cannon-es');
+const { createCupBody, innerRadiusAt, isBallInCup, rackPositions } = require('../public/cup-physics');
 
 const CUP = { topRadius: 0.2, bottomRadius: 0.14, height: 0.5 };
 const BALL_RADIUS = 0.08;
@@ -86,4 +86,17 @@ test('innerRadiusAt tapers from bottom to top radius', () => {
   assert.strictEqual(innerRadiusAt(CUP, 0), CUP.bottomRadius);
   assert.strictEqual(innerRadiusAt(CUP, CUP.height), CUP.topRadius);
   assert.strictEqual(innerRadiusAt(CUP, -1), CUP.bottomRadius);
+});
+
+test('rackPositions builds a 1-2-3 triangle with no overlapping cups', () => {
+  const spacing = CUP.topRadius * 2 + 0.02;
+  const positions = rackPositions(3, 1.8, spacing);
+  assert.strictEqual(positions.length, 6);
+  assert.deepStrictEqual(positions[0], { x: 0, z: 1.8 });
+  for (let i = 0; i < positions.length; i++) {
+    for (let j = i + 1; j < positions.length; j++) {
+      const distance = Math.hypot(positions[i].x - positions[j].x, positions[i].z - positions[j].z);
+      assert.ok(distance >= CUP.topRadius * 2, `cups ${i} and ${j} overlap (${distance.toFixed(3)} m apart)`);
+    }
+  }
 });

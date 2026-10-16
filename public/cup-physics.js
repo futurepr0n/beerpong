@@ -44,7 +44,19 @@
       Math.sqrt(dx * dx + dz * dz) < innerRadiusAt(cup, heightAboveBase);
   }
 
-  const api = { createCupBody, innerRadiusAt, isBallInCup };
+  // Triangle rack with its point toward the thrower: 1 cup in front, then 2, 3, ...
+  function rackPositions(rowCount, apexZ, spacing) {
+    const positions = [];
+    for (let row = 0; row < rowCount; row++) {
+      const z = apexZ + row * spacing * Math.sqrt(3) / 2;
+      for (let i = 0; i <= row; i++) {
+        positions.push({ x: (i - row / 2) * spacing, z });
+      }
+    }
+    return positions;
+  }
+
+  const api = { createCupBody, innerRadiusAt, isBallInCup, rackPositions };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {

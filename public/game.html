@@ -5,10 +5,17 @@
   <style>body { margin: 0; overflow: hidden; }</style>
 </head>
 <body>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/vendor/three/three.module.js",
+        "cannon-es": "/vendor/cannon-es/cannon-es.js"
+      }
+    }
+  </script>
   <script src="/socket.io/socket.io.js"></script>
   <script src="cup-physics.js"></script>
-  <script src="game.js"></script>
+  <script src="throw-model.js"></script>
+  <script type="module" src="game.js"></script>
 </body>
 </html>
