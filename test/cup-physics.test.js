@@ -1,63 +1,89 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const CANNON = require('cannon');
-const { createCupBody, isBallInCup } = require('../public/cup-physics');
+const { createCupBody, innerRadiusAt, isBallInCup } = require('../public/cup-physics');
 
-const CUP_RADIUS = 0.2;
-const CUP_HEIGHT = 0.5;
-const BALL_RADIUS = 0.05;
+const CUP = { topRadius: 0.2, bottomRadius: 0.14, height: 0.5 };
+const BALL_RADIUS = 0.08;
 const TIME_STEP = 1 / 480;
 
-function simulate(ballStart, ballVelocity, seconds = 2) {
+function simulate(ballStart, ballVelocity, seconds = 3) {
   const world = new CANNON.World();
   world.gravity.set(0, -9.82, 0);
+  const ballMaterial = new CANNON.Material();
+  const cupMaterial = new CANNON.Material();
+  world.addContactMaterial(new CANNON.ContactMaterial(ballMaterial, cupMaterial, { restitution: 0.4, friction: 0.3 }));
 
   const table = new CANNON.Body({ mass: 0 });
   table.addShape(new CANNON.Plane());
   table.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
   world.addBody(table);
 
-  const cup = createCupBody(CANNON, CUP_RADIUS, CUP_HEIGHT, 0, 2);
+  const cup = createCupBody(CANNON, CUP, 0, 0, cupMaterial);
   world.addBody(cup);
 
-  const ball = new CANNON.Body({ mass: 1 });
+  const ball = new CANNON.Body({ mass: 0.054, material: ballMaterial });
   ball.addShape(new CANNON.Sphere(BALL_RADIUS));
   ball.position.set(...ballStart);
   ball.velocity.set(...ballVelocity);
   world.addBody(ball);
 
-  let sunk = false;
-  for (let i = 0; i < seconds / TIME_STEP && !sunk; i++) {
+  let revolutions = 0;
+  let lastAngle = Math.atan2(ball.position.z, ball.position.x);
+  for (let i = 0; i < seconds / TIME_STEP; i++) {
     world.step(TIME_STEP);
-    sunk = isBallInCup(ball.position, BALL_RADIUS, cup.position, CUP_RADIUS, CUP_HEIGHT);
+    const angle = Math.atan2(ball.position.z, ball.position.x);
+    let delta = angle - lastAngle;
+    if (delta > Math.PI) delta -= 2 * Math.PI;
+    if (delta < -Math.PI) delta += 2 * Math.PI;
+    lastAngle = angle;
+    if (isBallInCup(ball.position, BALL_RADIUS, cup.position, CUP)) {
+      return { sunk: true, revolutions, seconds: i * TIME_STEP, ball };
+    }
+    if (ball.position.y < CUP.height) revolutions += Math.abs(delta) / (2 * Math.PI);
   }
-  return { sunk, ball };
+  return { sunk: false, revolutions, ball };
 }
 
-test('ball dropped into the cup opening is sunk', () => {
-  assert.strictEqual(simulate([0, 1, 2], [0, 0, 0]).sunk, true);
+test('ball dropped into the cup opening falls to the bottom and is sunk', () => {
+  assert.strictEqual(simulate([0, 1, 0], [0, 0, 0]).sunk, true);
 });
 
-test('ball dropped onto the rim is stopped by the rim instead of falling through', () => {
-  // Free fall from y=1 reaches the rim (y=0.55 contact) at ~0.30 s; check just after impact
-  const { ball } = simulate([CUP_RADIUS, 1, 2], [0, 0, 0], 0.35);
-  assert.ok(ball.position.y > CUP_HEIGHT - BALL_RADIUS, `ball fell through the rim to y=${ball.position.y}`);
+test('ball entering along the wall swirls around the cup before sinking', () => {
+  const { sunk, revolutions, seconds } = simulate([0.09, 0.45, 0], [0, -0.5, 3]);
+  assert.strictEqual(sunk, true);
+  assert.ok(revolutions > 1, `expected the ball to circle the cup, got ${revolutions.toFixed(2)} revolutions`);
+  assert.ok(seconds > 0.5, `expected a slow spiral down, sank after ${seconds.toFixed(2)} s`);
 });
 
-test('fast ball hitting the side of the cup bounces off and is not sunk', () => {
-  const { sunk, ball } = simulate([0, 0.25, 0.5], [0, 0, 20], 0.5);
+test('centered lob from the throw distance lands in the cup', () => {
+  // Reaches the cup at t=1 s just above the rim: vz = 5, vy = 0.55 - 1 + g/2
+  assert.strictEqual(simulate([0, 1, -5], [0, 4.46, 5]).sunk, true);
+});
+
+test('lob that clips the rim bounces out', () => {
+  assert.strictEqual(simulate([0, 1, -5], [0.12, 4.46, 5]).sunk, false);
+});
+
+test('lob that overshoots misses', () => {
+  assert.strictEqual(simulate([0, 1, -5], [0, 4.46, 5.6]).sunk, false);
+});
+
+test('fast ball hitting the side of the cup bounces off instead of passing through', () => {
+  const { sunk, ball } = simulate([0, 0.25, -1.5], [0, 0, 20], 0.5);
   assert.strictEqual(sunk, false);
-  assert.ok(ball.position.z < 2 - CUP_RADIUS, `ball ended inside the cup wall at z=${ball.position.z}`);
+  assert.ok(ball.position.z < -CUP.topRadius, `ball ended at z=${ball.position.z}, past the cup wall`);
 });
 
-test('arcing throw from the throw spot can land in the cup', () => {
-  // Projectile from (0,1,-3) to (0,0.4,2): 5 m in 1 s needs vz=5, vy=(-0.6 + 4.91)/1
-  assert.strictEqual(simulate([0, 1, -3], [0, 4.31, 5]).sunk, true);
+test('ball still inside the cup but above the bottom is not yet sunk', () => {
+  const cupPosition = { x: 0, y: CUP.height / 2, z: 0 };
+  assert.strictEqual(isBallInCup({ x: 0, y: 0.3, z: 0 }, BALL_RADIUS, cupPosition, CUP), false);
+  assert.strictEqual(isBallInCup({ x: 0, y: BALL_RADIUS, z: 0 }, BALL_RADIUS, cupPosition, CUP), true);
+  assert.strictEqual(isBallInCup({ x: 0.3, y: BALL_RADIUS, z: 0 }, BALL_RADIUS, cupPosition, CUP), false);
 });
 
-test('isBallInCup rejects a ball above the rim or outside the ring', () => {
-  const cupPosition = { x: 0, y: CUP_HEIGHT / 2, z: 0 };
-  assert.strictEqual(isBallInCup({ x: 0, y: 0.6, z: 0 }, BALL_RADIUS, cupPosition, CUP_RADIUS, CUP_HEIGHT), false);
-  assert.strictEqual(isBallInCup({ x: 0.3, y: 0.2, z: 0 }, BALL_RADIUS, cupPosition, CUP_RADIUS, CUP_HEIGHT), false);
-  assert.strictEqual(isBallInCup({ x: 0.1, y: 0.2, z: 0 }, BALL_RADIUS, cupPosition, CUP_RADIUS, CUP_HEIGHT), true);
+test('innerRadiusAt tapers from bottom to top radius', () => {
+  assert.strictEqual(innerRadiusAt(CUP, 0), CUP.bottomRadius);
+  assert.strictEqual(innerRadiusAt(CUP, CUP.height), CUP.topRadius);
+  assert.strictEqual(innerRadiusAt(CUP, -1), CUP.bottomRadius);
 });
