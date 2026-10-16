@@ -27,20 +27,23 @@ This is a beer pong game that uses real-time physics simulation with Three.js an
 - `public/game.js` - ES module: scene, lighting, physics, rack/score/win state, aim guide, Socket.io
 - `public/cup-physics.js` - Tapered cup bodies, sink detection and rack layout (shared with `test/`)
 - `public/throw-model.js` - Maps power/aim to launch velocity (shared by controller, game and `test/`)
-- `public/controller.js` - Sensor permissions, flick/tilt or hold-to-charge/drag input, aim streaming
+- `public/controller.js` - Sensor permissions, aim/throw buttons, calibration, hold-to-charge fallback, aim streaming
 
 `cup-physics.js` and `throw-model.js` are classic scripts that set `window.CupPhysics` / `window.ThrowModel` in the browser and use `module.exports` in Node.
 
 ### Communication Flow
 1. Controller joins a room by code (`?room=CODE` pre-fills it)
-2. While the throw button is held, the controller streams `aim` so the game draws the predicted arc
+2. While aiming, the controller streams `aim` so the game draws the predicted arc
 3. On release, the controller converts power and aim to a launch velocity with `ThrowModel` and sends `throw`
 4. Server validates and relays it to that room's game screen only
 5. The game launches the ball with that velocity (capped at 20 m/s) and simulates it
 
 ### Throw Input
-- With motion sensors (HTTPS + permission): power from peak forward wrist flick (`devicemotion` rotationRate.beta), aim from sideways tilt
-- Without sensors: power charges up and back down while held (timing matters), aim by dragging left/right
+- Aim and power are separate: hold Aim and tilt (or drag) to set aim, which stays locked across throws; a quick tap resets it to straight. Throws ignore tilt.
+- With motion sensors (HTTPS + permission): power from peak linear acceleration and total rotation rate (second-highest sample, so single spikes are ignored), captured until 120 ms after release
+- Per-player calibration per style (overhand/underhand): full swings at a 6 m target and soft swings at 3 m, saved in localStorage; throws interpolate between them
+- Without sensors: power charges up and back down while held (timing matters)
+- Server also relays `calibration` progress to the game; `THROW_DEBUG=1` logs controller sensor captures
 
 ### Physics System
 - Fixed 1/480 s steps (sub-stepped per frame) so the ball cannot pass through cup walls

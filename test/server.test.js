@@ -56,7 +56,7 @@ test('room codes are case-insensitive and trimmed', async () => {
   const game = await connect();
   const controller = await connect();
   const { code } = await request(game, 'create-room');
-  assert.deepStrictEqual(await request(controller, 'join-room', ` ${code.toLowerCase()} `), { code });
+  assert.deepStrictEqual(await request(controller, 'join-room', ` ${code.toLowerCase()} `), { code, debug: false });
 });
 
 test('throws before joining a room go nowhere', async () => {
@@ -135,4 +135,48 @@ test('invalid or too-frequent aim updates are dropped', async () => {
   controller.emit('aim', { power: 0.2, aim: 0 });
   await wait(100);
   assert.deepStrictEqual(aims, [{ power: 0.1, aim: 0 }]);
+});
+
+test('throw-debug data is ignored unless THROW_DEBUG=1', async () => {
+  const { controller } = await pairedRoom();
+  const logged = [];
+  const originalLog = console.log;
+  console.log = (...args) => logged.push(args.join(' '));
+  try {
+    controller.emit('throw-debug', { peak: 1 });
+    await wait(100);
+  } finally {
+    console.log = originalLog;
+  }
+  assert.strictEqual(logged.length, 0);
+});
+
+test('join acknowledges whether throw debugging is on', async () => {
+  const game = await connect();
+  const controller = await connect();
+  const { code } = await request(game, 'create-room');
+  assert.deepStrictEqual(await request(controller, 'join-room', code), { code, debug: false });
+});
+
+test('app files are revalidated on every load so phones pick up deploys', async () => {
+  for (const file of ['/controller.html', '/controller.js', '/throw-model.js']) {
+    const response = await fetch(`${url}${file}`);
+    assert.strictEqual(response.status, 200);
+    assert.strictEqual(response.headers.get('cache-control'), 'no-cache', file);
+  }
+});
+
+test('calibration progress is relayed to the game; invalid progress is dropped', async () => {
+  const { game, controller } = await pairedRoom();
+  const progress = [];
+  game.on('calibration', update => progress.push(update));
+  for (const bad of ['x', { style: 'sidearm', stage: 'far', attempt: 1, total: 2 },
+    { style: 'overhand', stage: 'launch', attempt: 1, total: 2 }, { style: 'overhand', stage: 'far', attempt: 1.5, total: 2 },
+    { style: 'overhand', stage: 'far', attempt: 99, total: 2 }, { style: '<b>', stage: 'far', attempt: 1, total: 2 }]) {
+    controller.emit('calibration', bad);
+  }
+  controller.emit('calibration', { style: 'underhand', stage: 'far', attempt: 1, total: 2, extra: 'x' });
+  controller.emit('calibration', null);
+  await wait(100);
+  assert.deepStrictEqual(progress, [{ style: 'underhand', stage: 'far', attempt: 1, total: 2 }, null]);
 });

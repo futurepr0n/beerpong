@@ -1,6 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { powerFromFlick, powerFromHold, aimFromTilt, launchVelocity, MAX_AIM_DEGREES } = require('../public/throw-model');
+const {
+  powerFromMotion, powerFromHold, aimFromTilt, launchVelocity, powerForDistance, createCalibration,
+  distanceFromCalibration, createPeakTracker, MAX_AIM_DEGREES, CALIBRATION_NEAR_DISTANCE, CALIBRATION_FAR_DISTANCE
+} = require('../public/throw-model');
 
 const BALL_START = { y: 1, z: -2.6 };
 const RIM_HEIGHT = 0.5;
@@ -41,8 +44,8 @@ test('full aim reaches the outer back cups', () => {
 });
 
 test('power inputs are clamped to 0..1', () => {
-  assert.strictEqual(powerFromFlick(0), 0);
-  assert.strictEqual(powerFromFlick(5000), 1);
+  assert.strictEqual(powerFromMotion(0, 0), 0);
+  assert.strictEqual(powerFromMotion(500, 50000), 1);
   assert.strictEqual(powerFromHold(-10), 0);
 });
 
@@ -55,7 +58,111 @@ test('hold-to-charge power rises to full and falls back so release timing matter
   assert.strictEqual(powerFromHold(3750), 0.5);
 });
 
-test('aimFromTilt scales and clamps sideways tilt', () => {
-  assert.strictEqual(aimFromTilt(10), 3);
+test('aimFromTilt ignores small tilts, then scales and clamps', () => {
+  assert.strictEqual(aimFromTilt(2), 0);
+  assert.strictEqual(aimFromTilt(-2.9), 0);
+  assert.strictEqual(aimFromTilt(15), 3);
+  assert.strictEqual(aimFromTilt(-15), -3);
   assert.strictEqual(aimFromTilt(-200), -MAX_AIM_DEGREES);
+});
+
+test('aim reaches the outer cups with a comfortable tilt', () => {
+  const outerCupDegrees = Math.atan2(0.42, BACK_ROW_Z - BALL_START.z) * 180 / Math.PI;
+  assert.ok(aimFromTilt(40) >= outerCupDegrees, `40 degrees of tilt only aims ${aimFromTilt(40)} degrees`);
+});
+
+// Peaks captured from real iPhone throws: [m/s^2, deg/s]
+const GENTLE = [17.8, 384];
+const MEDIUM = [27.3, 629];
+const FIRM = [48.5, 923];
+const forwardFor = ([acceleration, rotation]) =>
+  distanceAtRimHeight(launchVelocity(powerFromMotion(acceleration, rotation), 0)).forward;
+
+test('captured gentle throw falls short of the rack', () => {
+  assert.ok(forwardFor(GENTLE) < FRONT_CUP_Z - BALL_START.z - 0.3);
+});
+
+test('captured medium throw lands in the rack', () => {
+  const forward = forwardFor(MEDIUM);
+  assert.ok(forward > FRONT_CUP_Z - BALL_START.z - 0.25 && forward < BACK_ROW_Z - BALL_START.z + 0.25,
+    `medium throw lands ${forward.toFixed(2)} m out`);
+});
+
+test('captured firm throw overshoots the rack', () => {
+  assert.ok(forwardFor(FIRM) > BACK_ROW_Z - BALL_START.z + 0.5);
+});
+
+test('a quick wrist twist alone does not reach full power', () => {
+  assert.ok(powerFromMotion(5, 1000) <= 0.5);
+});
+
+test('a phone held still while pressing the button gives zero power', () => {
+  assert.strictEqual(powerFromMotion(0.5, 20), 0);
+});
+
+// Horizontal distance until the ball comes down to table level (y = 0)
+function distanceAtTable(velocity) {
+  const g = 9.82;
+  const time = (velocity.y + Math.sqrt(velocity.y * velocity.y + 2 * g * BALL_START.y)) / g;
+  return velocity.z * time;
+}
+
+test('powerForDistance lands the ball at the requested distance', () => {
+  for (const distance of [CALIBRATION_NEAR_DISTANCE, 4.4, CALIBRATION_FAR_DISTANCE]) {
+    const landed = distanceAtTable(launchVelocity(powerForDistance(distance), 0));
+    assert.ok(Math.abs(landed - distance) < 0.01, `asked for ${distance} m, landed at ${landed.toFixed(3)} m`);
+  }
+});
+
+test('both calibration targets are within the throwable power range', () => {
+  assert.ok(powerForDistance(CALIBRATION_NEAR_DISTANCE) > 0);
+  assert.ok(powerForDistance(CALIBRATION_FAR_DISTANCE) < 1);
+});
+
+const near = [{ acceleration: 15, rotation: 350 }, { acceleration: 19, rotation: 410 }];
+const far = [{ acceleration: 45, rotation: 880 }, { acceleration: 51, rotation: 960 }];
+
+test('calibration maps the player\'s own soft and full swings onto the near and far targets', () => {
+  const calibration = createCalibration(near, far);
+  assert.deepStrictEqual(calibration.usable, ['acceleration', 'rotation']);
+  assert.strictEqual(distanceFromCalibration(calibration, 17, 380), CALIBRATION_NEAR_DISTANCE);
+  assert.strictEqual(distanceFromCalibration(calibration, 48, 920), CALIBRATION_FAR_DISTANCE);
+  const halfway = distanceFromCalibration(calibration, 32.5, 650);
+  assert.ok(Math.abs(halfway - (CALIBRATION_NEAR_DISTANCE + CALIBRATION_FAR_DISTANCE) / 2) < 1e-9);
+});
+
+test('calibrated throws extrapolate only a limited way past the calibrated swings', () => {
+  const calibration = createCalibration(near, far);
+  const span = CALIBRATION_FAR_DISTANCE - CALIBRATION_NEAR_DISTANCE;
+  assert.strictEqual(distanceFromCalibration(calibration, 500, 5000), CALIBRATION_NEAR_DISTANCE + 1.4 * span);
+  assert.strictEqual(distanceFromCalibration(calibration, 0, 0), CALIBRATION_NEAR_DISTANCE - 0.6 * span);
+});
+
+test('calibration ignores a sensor that did not separate soft from full swings', () => {
+  const calibration = createCalibration(near, [{ acceleration: 47, rotation: 390 }]);
+  assert.deepStrictEqual(calibration.usable, ['acceleration']);
+  assert.strictEqual(distanceFromCalibration(calibration, 47, 9999), CALIBRATION_FAR_DISTANCE);
+});
+
+test('calibration is rejected when soft and full swings are indistinguishable', () => {
+  assert.strictEqual(createCalibration(near, near), null);
+});
+
+test('peak tracker ignores a single-sample spike but keeps a sustained peak', () => {
+  const spiked = createPeakTracker();
+  [2, 3, 60, 4, 3].forEach(v => spiked.add(v));
+  assert.strictEqual(spiked.value, 4);
+  const swing = createPeakTracker();
+  [5, 12, 26, 27, 20].forEach(v => swing.add(v));
+  assert.strictEqual(swing.value, 26);
+});
+
+test('peak tracker reports the only sample, starts at zero and skips bad readings', () => {
+  const tracker = createPeakTracker();
+  assert.strictEqual(tracker.value, 0);
+  tracker.add(NaN);
+  tracker.add(-1);
+  assert.strictEqual(tracker.value, 0);
+  tracker.add(9);
+  assert.strictEqual(tracker.value, 9);
 });

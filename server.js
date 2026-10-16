@@ -9,6 +9,11 @@ const MAX_VELOCITY_COMPONENT = 50;
 const THROW_COOLDOWN_MS = 500;
 const AIM_MIN_INTERVAL_MS = 50;
 const MAX_AIM_DEGREES = 10;
+const CALIBRATION_STYLES = ['overhand', 'underhand'];
+const CALIBRATION_STAGES = ['point', 'far', 'near'];
+const MAX_CALIBRATION_SWINGS = 5;
+const THROW_DEBUG = process.env.THROW_DEBUG === '1';
+const MAX_DEBUG_LOG_CHARS = 9500;
 const ROOM_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const ROOM_CODE_LENGTH = 4;
 
@@ -16,9 +21,12 @@ const ROOM_CODE_LENGTH = 4;
 const rooms = new Map();
 
 // Serve static files from the 'public' directory
-app.use(express.static(path.join(__dirname, 'public')));
-app.use('/vendor/three', express.static(path.join(__dirname, 'node_modules/three/build')));
-app.use('/vendor/cannon-es', express.static(path.join(__dirname, 'node_modules/cannon-es/dist')));
+// Revalidate app files on every load so phones pick up deploys; pinned vendor builds can cache
+const revalidate = { setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') };
+const vendorCache = { maxAge: '1d' };
+app.use(express.static(path.join(__dirname, 'public'), revalidate));
+app.use('/vendor/three', express.static(path.join(__dirname, 'node_modules/three/build'), vendorCache));
+app.use('/vendor/cannon-es', express.static(path.join(__dirname, 'node_modules/cannon-es/dist'), vendorCache));
 
 function generateRoomCode() {
   let code;
@@ -51,6 +59,17 @@ function parseAim(data) {
   return { power, aim };
 }
 
+// null clears it; otherwise { style, stage, attempt, total } from fixed lists and small integers
+function parseCalibrationProgress(data) {
+  if (data === null) return null;
+  if (!data || typeof data !== 'object') return undefined;
+  const { style, stage, attempt, total } = data;
+  const isCount = n => Number.isInteger(n) && n >= 0 && n <= MAX_CALIBRATION_SWINGS;
+  if (!CALIBRATION_STYLES.includes(style) || !CALIBRATION_STAGES.includes(stage)) return undefined;
+  if (!isCount(attempt) || !isCount(total)) return undefined;
+  return { style, stage, attempt, total };
+}
+
 io.on('connection', (socket) => {
 
   // A game screen asks for a room code
@@ -72,7 +91,25 @@ io.on('connection', (socket) => {
       return;
     }
     socket.data.room = normalized;
-    ack({ code: normalized });
+    ack({ code: normalized, debug: THROW_DEBUG });
+  });
+
+  // Calibration progress mirrored on the game screen, or null when the player finishes or cancels
+  socket.on('calibration', (data) => {
+    const gameSocketId = rooms.get(socket.data.room);
+    if (!gameSocketId) return;
+    const progress = parseCalibrationProgress(data);
+    if (progress === undefined) return;
+    io.to(gameSocketId).emit('calibration', progress);
+  });
+
+  // Sensor capture from a controller, logged only while THROW_DEBUG=1 for tuning throw input
+  socket.on('throw-debug', (data) => {
+    if (!THROW_DEBUG || !rooms.has(socket.data.room) || !data || typeof data !== 'object') return;
+    const now = Date.now();
+    if (now - (socket.data.lastDebugTime || 0) < THROW_COOLDOWN_MS) return;
+    socket.data.lastDebugTime = now;
+    console.log('[throw-debug]', JSON.stringify(data).slice(0, MAX_DEBUG_LOG_CHARS));
   });
 
   // Live aim from a controller while the throw button is held

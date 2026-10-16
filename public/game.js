@@ -213,7 +213,7 @@ const sinkDisplayDelay = 1500;
 let sinkingCup = null;
 
 function checkCupSink() {
-  if (!ballInFlight) return;
+  if (!ballInFlight || calibrating) return;
   const sunkCup = cups.find(cup =>
     CupPhysics.isBallInCup(ballBody.position, ballRadius, cup.body.position, cupShape));
   if (!sunkCup) return;
@@ -299,6 +299,73 @@ function showAimGuide({ power, aim }) {
   aimGuide.visible = true;
 }
 
+// Calibration target: a ring on the table the player swings at; cups don't score while it shows
+const calibrationTarget = new THREE.Group();
+const targetRing = new THREE.Mesh(
+  new THREE.RingGeometry(0.22, 0.32, 48),
+  new THREE.MeshBasicMaterial({ color: 0x33ccff, side: THREE.DoubleSide }));
+const targetCenter = new THREE.Mesh(
+  new THREE.CircleGeometry(0.07, 24),
+  new THREE.MeshBasicMaterial({ color: 0x33ccff }));
+[targetRing, targetCenter].forEach(mesh => {
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = 0.004;
+});
+// Tall marker so the far target still shows when the rack is in front of it
+const targetMarkerHeight = 1.4;
+const targetMarker = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.025, 0.025, targetMarkerHeight, 12),
+  new THREE.MeshBasicMaterial({ color: 0x33ccff, transparent: true, opacity: 0.7 }));
+targetMarker.position.y = targetMarkerHeight / 2;
+const targetFlag = new THREE.Mesh(
+  new THREE.SphereGeometry(0.07, 16, 16),
+  new THREE.MeshBasicMaterial({ color: 0x33ccff }));
+targetFlag.position.y = targetMarkerHeight;
+calibrationTarget.add(targetRing, targetCenter, targetMarker, targetFlag);
+calibrationTarget.visible = false;
+scene.add(calibrationTarget);
+
+// Mirrors the player's calibration on the big screen; cups don't score while it runs
+let calibrating = false;
+const calibrationPanel = document.createElement('div');
+Object.assign(calibrationPanel.style, {
+  position: 'absolute', bottom: '12%', left: '50%', transform: 'translateX(-50%)', maxWidth: '80%',
+  padding: '16px 28px', borderRadius: '10px', background: 'rgba(0, 40, 60, 0.85)', border: '2px solid #33ccff',
+  color: 'white', fontFamily: 'Arial, sans-serif', textAlign: 'center'
+});
+calibrationPanel.hidden = true;
+const calibrationTitle = document.createElement('div');
+calibrationTitle.style.fontSize = '28px';
+const calibrationStep = document.createElement('div');
+calibrationStep.style.fontSize = '20px';
+calibrationStep.style.marginTop = '8px';
+calibrationPanel.append(calibrationTitle, calibrationStep);
+document.body.appendChild(calibrationPanel);
+
+const calibrationDistances = {
+  far: ThrowModel.CALIBRATION_FAR_DISTANCE,
+  near: ThrowModel.CALIBRATION_NEAR_DISTANCE
+};
+
+function describeCalibrationStep({ stage, attempt, total }) {
+  if (stage === 'point') return 'Hold your phone in your starting position, point it at this screen and tap Set';
+  const swing = stage === 'far' ? 'Full, comfortable swing at the far target' : 'Softer swing at the near target';
+  return `${swing} (${attempt} of ${total})`;
+}
+
+socket.on('calibration', (progress) => {
+  calibrating = Boolean(progress);
+  calibrationPanel.hidden = !progress;
+  const distance = progress && calibrationDistances[progress.stage];
+  calibrationTarget.visible = Boolean(distance);
+  if (distance) calibrationTarget.position.set(ballStartPosition.x, 0, ballStartPosition.z + distance);
+  if (progress) {
+    const style = progress.style[0].toUpperCase() + progress.style.slice(1);
+    calibrationTitle.textContent = `${style} calibration`;
+    calibrationStep.textContent = describeCalibrationStep(progress);
+  }
+});
+
 socket.on('aim', (aim) => {
   if (aim) {
     showAimGuide(aim);
@@ -326,8 +393,10 @@ socket.on('throw', (velocity) => {
 
   throwFeedback.textContent = `Throw speed: ${launch.length().toFixed(1)} m/s`;
   ballInFlight = true;
-  throwCount++;
-  updateScore();
+  if (!calibrating) {
+    throwCount++;
+    updateScore();
+  }
   lastThrowTime = Date.now();
 });
 

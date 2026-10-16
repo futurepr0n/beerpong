@@ -8,6 +8,16 @@
     [hidden] {
       display: none !important;
     }
+    * {
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    html, body {
+      overscroll-behavior: none;
+      touch-action: manipulation;
+    }
     body {
       margin: 0;
       display: flex;
@@ -26,6 +36,8 @@
       width: 80%;
     }
     #roomInput {
+      -webkit-user-select: text;
+      user-select: text;
       width: 100%;
       font-size: 28px;
       text-align: center;
@@ -46,12 +58,121 @@
     #joinButton {
       padding: 14px;
     }
-    #throwButton {
-      width: 80%;
-      height: 20%;
+    #playControls {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      width: 85%;
+      height: 75vh;
+    }
+    #styleBar {
+      display: flex;
+      width: 100%;
+      gap: 8px;
+    }
+    .styleButton, #calibrateButton, #calibrationSetButton {
+      flex: 1;
+      padding: 12px;
+      font-size: 18px;
+      border: 2px solid #4CAF50;
+      border-radius: 5px;
+      background: white;
+      color: #2e7d32;
+    }
+    .styleButton[aria-pressed="true"] {
+      background: #4CAF50;
+      color: white;
+    }
+    #calibrateButton {
+      width: 100%;
+      flex: none;
+    }
+    #calibrationStatus {
+      font-size: 15px;
+      color: #555;
+    }
+    #calibrationModal {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      padding: 24px 7%;
+      padding-top: calc(24px + env(safe-area-inset-top, 0px));
+      padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+      box-sizing: border-box;
+      background: #0b2a3a;
+      color: white;
+      text-align: center;
+    }
+    #calibrationTitle {
+      font-size: 26px;
+      font-weight: bold;
+    }
+    #calibrationProgress {
+      font-size: 15px;
+      color: #9fdcf5;
+    }
+    #calibrationText {
+      font-size: 20px;
+      line-height: 1.35;
+    }
+    .modalButton, .modalSecondary {
+      width: 100%;
+      padding: 14px;
+      font-size: 20px;
+      border-radius: 5px;
+      border: 2px solid #33ccff;
+    }
+    .modalButton {
+      background: #33ccff;
+      color: #0b2a3a;
+    }
+    .modalSecondary {
+      background: transparent;
+      color: #9fdcf5;
+    }
+    #calibrationSwingButton {
+      width: 100%;
+      flex: 1;
+      font-size: 24px;
+      background: #33ccff;
+      color: #0b2a3a;
+      border: none;
+      border-radius: 5px;
       touch-action: none;
-      user-select: none;
-      -webkit-user-select: none;
+    }
+    #aimRow {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+    }
+    #aimButton {
+      flex: 1;
+      padding: 18px 10px;
+      font-size: 20px;
+      background: #ff9800;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      touch-action: none;
+    }
+    #aimButton.aiming {
+      background: #e65100;
+    }
+    #aimDisplay {
+      flex: 1;
+      font-size: 18px;
+      color: #333;
+      text-align: center;
+    }
+    #throwButton {
+      flex: 1;
+      touch-action: none;
     }
     #statusDisplay {
       font-size: 18px;
@@ -66,7 +187,28 @@
     <input id="roomInput" maxlength="4" autocomplete="off" placeholder="CODE" aria-label="Room code">
     <button id="joinButton" type="submit">Join Game</button>
   </form>
-  <button id="throwButton" hidden>Hold to Throw</button>
+  <div id="playControls" hidden>
+    <div id="styleBar" role="group" aria-label="Swing style">
+      <button id="styleOverhand" class="styleButton" data-style="overhand" type="button">Overhand</button>
+      <button id="styleUnderhand" class="styleButton" data-style="underhand" type="button">Underhand</button>
+    </div>
+    <div id="calibrationStatus"></div>
+    <button id="calibrateButton" type="button">Calibrate</button>
+    <div id="aimRow">
+      <button id="aimButton">Hold to Aim</button>
+      <div id="aimDisplay" aria-live="polite">Aim: straight</div>
+    </div>
+    <button id="throwButton" class="swingButton">Hold to Throw</button>
+  </div>
+  <div id="calibrationModal" role="dialog" aria-modal="true" aria-labelledby="calibrationTitle" hidden>
+    <div id="calibrationTitle"></div>
+    <div id="calibrationProgress"></div>
+    <div id="calibrationText"></div>
+    <button id="calibrationSetButton" class="modalButton" type="button">Set</button>
+    <button id="calibrationStartButton" class="modalButton" type="button">Start calibration</button>
+    <button id="calibrationSwingButton" class="swingButton">Hold to Swing</button>
+    <button id="calibrationCancelButton" class="modalSecondary" type="button">Cancel</button>
+  </div>
   <div id="statusDisplay">Connecting...</div>
   <script src="/socket.io/socket.io.js"></script>
   <script src="throw-model.js"></script>
