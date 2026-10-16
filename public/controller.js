@@ -23,7 +23,7 @@ async function requestOrientationPermission() {
   }
 }
 
-function joinRoom(code) {
+function joinRoom(code, warning = '') {
   socket.emit('join-room', code, (response) => {
     if (response.error) {
       roomCode = null;
@@ -35,21 +35,19 @@ function joinRoom(code) {
     roomCode = response.code;
     joinForm.hidden = true;
     throwButton.hidden = false;
-    statusDisplay.textContent = `Joined room ${roomCode}. Hold to throw.`;
+    statusDisplay.textContent = `Joined room ${roomCode}. ${warning || 'Hold to throw.'}`;
   });
 }
 
 joinForm.addEventListener('submit', async (e) => {
   e.preventDefault();
+  let warning = '';
   if (!window.isSecureContext) {
-    statusDisplay.textContent = 'Motion sensors need HTTPS. Open this page over https://';
-    return;
+    warning = 'Motion sensors need HTTPS; default throws only.';
+  } else if (!(await requestOrientationPermission())) {
+    warning = 'Motion access denied; default throws only.';
   }
-  if (!(await requestOrientationPermission())) {
-    statusDisplay.textContent = 'Motion access denied. Allow it in browser settings to throw.';
-    return;
-  }
-  joinRoom(roomInput.value);
+  joinRoom(roomInput.value, warning);
 });
 
 let initialOrientation = { beta: 0, gamma: 0 };

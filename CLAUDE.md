@@ -10,6 +10,7 @@ This is a beer pong game that uses real-time physics simulation with Three.js an
 
 - `npm start` - Start the development server (runs on port 9056)
 - `node server.js` - Alternative way to start the server
+- `npm test` - Run cup physics tests (Node's built-in test runner, uses `cannon` dev dependency)
 
 ## Architecture
 
@@ -23,6 +24,7 @@ This is a beer pong game that uses real-time physics simulation with Three.js an
 - `public/game.html` - Game view with 3D beer pong table and physics
 - `public/controller.html` - Mobile controller interface for throwing
 - `public/game.js` - Three.js scene setup, physics simulation, and Socket.io integration
+- `public/cup-physics.js` - Hollow cup bodies and sink detection, shared by the game and `test/`
 - `public/controller.js` - Mobile device orientation tracking and throw gesture detection
 
 ### Key Dependencies
@@ -41,7 +43,7 @@ This is a beer pong game that uses real-time physics simulation with Three.js an
 ### Physics System
 - Uses Cannon.js for realistic physics simulation
 - Table is represented as a static plane body
-- Cups are positioned in triangle formation with collision detection
+- Cups are hollow rings of wall boxes (the table is the floor); a cup is sunk when the ball is inside the ring below the rim
 - Ball physics include gravity, bounce, and collision responses
 
 ## File Structure

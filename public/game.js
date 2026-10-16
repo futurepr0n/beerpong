@@ -30,22 +30,21 @@ tableBody.material.restitution = 0.5;
 const cupRadius = 0.2;
 const cupHeight = 0.5;
 const cups = [];
+const cupSpacing = cupRadius * 2 + 0.02;
 const cupPositions = [
-  [0, 0, 2], [0.3, 0, 1.8], [-0.3, 0, 1.8] // Simplified triangle formation
+  [0, 0, 1.8],
+  [cupSpacing / 2, 0, 1.8 + cupSpacing * Math.sqrt(3) / 2],
+  [-cupSpacing / 2, 0, 1.8 + cupSpacing * Math.sqrt(3) / 2]
 ];
+const cupGeometry = new THREE.CylinderGeometry(cupRadius, cupRadius, cupHeight, 32, 1, true);
+const cupMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000, side: THREE.DoubleSide });
 
 cupPositions.forEach((pos) => {
-  const cupGeometry = new THREE.CylinderGeometry(cupRadius, cupRadius, cupHeight, 32);
-  const cupMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
   const cupMesh = new THREE.Mesh(cupGeometry, cupMaterial);
   cupMesh.position.set(pos[0], cupHeight / 2, pos[2]);
   scene.add(cupMesh);
 
-  const cupBody = new CANNON.Body({ mass: 0 });
-  cupBody.addShape(new CANNON.Cylinder(cupRadius, cupRadius, cupHeight, 16));
-  cupBody.position.set(pos[0], cupHeight / 2, pos[2]);
-  // CANNON.Cylinder is built along Z; rotate it upright to match the Three.js cylinder (Y axis)
-  cupBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+  const cupBody = CupPhysics.createCupBody(CANNON, cupRadius, cupHeight, pos[0], pos[2]);
   world.addBody(cupBody);
 
   cups.push({ mesh: cupMesh, body: cupBody, position: pos });
@@ -130,31 +129,32 @@ function checkBallReset() {
     ballInFlight = false;
     ballBody.position.copy(ballStartPosition); // Reset position
     ballBody.velocity.set(0, 0, 0);  // Stop movement
+    ballBody.angularVelocity.set(0, 0, 0);
     throwFeedback.textContent = '';  // Clear feedback
   }
 }
 
-// Collision detection
-ballBody.addEventListener('collide', (event) => {
-  const otherBody = event.body;
-  const hitCup = cups.find(cup => cup.body === otherBody);
-  if (hitCup) {
-    scene.remove(hitCup.mesh);
-    world.removeBody(hitCup.body);
-    cups.splice(cups.indexOf(hitCup), 1);
-    throwFeedback.textContent = 'Cup hit! 🎉';
-    console.log('Cup hit!');
-    
-    // Reset the ball after a cup hit
-    clearTimeout(pendingResetTimer);
-    pendingResetTimer = setTimeout(() => {
-      ballInFlight = false;
-      ballBody.position.copy(ballStartPosition);
-      ballBody.velocity.set(0, 0, 0);
-      throwFeedback.textContent = '';
-    }, 2000);
-  }
-});
+// Sink detection runs after the physics step so bodies are never removed mid-step
+function checkCupSink() {
+  if (!ballInFlight) return;
+  const sunkCup = cups.find(cup =>
+    CupPhysics.isBallInCup(ballBody.position, ballRadius, cup.body.position, cupRadius, cupHeight));
+  if (!sunkCup) return;
+
+  ballInFlight = false;
+  scene.remove(sunkCup.mesh);
+  world.removeBody(sunkCup.body);
+  cups.splice(cups.indexOf(sunkCup), 1);
+  throwFeedback.textContent = 'Cup sunk! 🎉';
+
+  clearTimeout(pendingResetTimer);
+  pendingResetTimer = setTimeout(() => {
+    ballBody.position.copy(ballStartPosition);
+    ballBody.velocity.set(0, 0, 0);
+    ballBody.angularVelocity.set(0, 0, 0);
+    throwFeedback.textContent = '';
+  }, 2000);
+}
 
 // Handle throw event
 socket.on('throw', (velocityDevice) => {
@@ -201,8 +201,8 @@ socket.on('throw', (velocityDevice) => {
 });
 
 // Animation loop: fixed physics step independent of display refresh rate
-const physicsTimeStep = 1 / 240;
-const maxSubSteps = 20;
+const physicsTimeStep = 1 / 480;
+const maxSubSteps = 50;
 let lastFrameTime = performance.now();
 
 function animate(now = performance.now()) {
@@ -216,6 +216,7 @@ function animate(now = performance.now()) {
   ballMesh.quaternion.copy(ballBody.quaternion);
   
   // Check if ball needs reset
+  checkCupSink();
   checkBallReset();
 
   renderer.render(scene, camera);
