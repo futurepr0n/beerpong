@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>Controller</title>
+  <style>
+    body {
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background-color: #f0f0f0;
+      font-family: Arial, sans-serif;
+    }
+    #joinForm {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      width: 80%;
+    }
+    #roomInput {
+      width: 100%;
+      font-size: 28px;
+      text-align: center;
+      text-transform: uppercase;
+      letter-spacing: 6px;
+      padding: 10px;
+      box-sizing: border-box;
+    }
+    #joinButton, #throwButton {
+      width: 100%;
+      font-size: 24px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    #joinButton {
+      padding: 14px;
+    }
+    #throwButton {
+      width: 80%;
+      height: 20%;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    #statusDisplay {
+      font-size: 18px;
+      color: #333;
+      margin: 10px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <form id="joinForm">
+    <input id="roomInput" maxlength="4" autocomplete="off" placeholder="CODE" aria-label="Room code">
+    <button id="joinButton" type="submit">Join Game</button>
+  </form>
+  <button id="throwButton" hidden>Hold to Throw</button>
+  <div id="statusDisplay">Connecting...</div>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="controller.js"></script>
+</body>
+</html>
